@@ -30,7 +30,7 @@
       <section class="card">
         <h2>面談種別・担当者・対象者</h2>
         <div class="grid">
-          <label class="wide">面談種別 <select name="interviewType" required><option value="">選択してください</option><option>ライバー</option><option>ライバー＆マネージャー</option><option>マネージャー</option></select><small>共有文のタイトルになり、シートの備考欄にも記録されます。</small></label>
+          <label class="wide">面談種別 <select name="interviewType" required><option value="">選択してください</option><option>ライバー</option><option>ライバー＆マネージャー</option><option>マネージャー</option></select><small>共有文のタイトルになります（シートには記録しません）。</small></label>
           <label>担当者（登録先シート） <select name="sheetName" required><option value="">選択してください</option></select></label>
           <label>担当者名 <input name="managerName" autocomplete="off" required placeholder="例：山田"><small>シートの「担当者名」列に入ります。</small></label>
           <label class="wide">XプロフィールURL <input name="xUrl" type="url" inputmode="url" autocapitalize="off" placeholder="https://x.com/..." required></label>
@@ -46,6 +46,7 @@
           <label>面談時刻 <input name="meetingTime" type="time" required></label>
           <label>初回送信日 <input name="firstContactDate" type="date" required></label>
           <label>相手からの返信日 <input name="replyDate" type="date" required></label>
+          <label>最終送信日 <input name="lastSentDate" type="date" required></label>
         </div>
       </section>
 

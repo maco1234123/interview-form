@@ -6,7 +6,7 @@ export const INTERVIEW_TYPES = {
 
 export const requiredFields = [
   "interviewType", "sheetName", "managerName", "xUrl", "targetName", "meetingDate", "meetingTime",
-  "firstContactDate", "replyDate", "tool"
+  "firstContactDate", "replyDate", "lastSentDate", "tool"
 ];
 
 const RESERVED_X_PATHS = ["i", "home", "intent", "search", "messages", "settings", "share"];
@@ -91,13 +91,6 @@ export function makeShareText(data) {
   return blocks.map(b => b.join("\n")).join("\n\n");
 }
 
-/** シートの備考欄に残す内容。面談種別を先頭に付ける（専用列が無いため） */
-export function notesWithType(data) {
-  const notes = String(data.notes ?? "").trim();
-  const type = INTERVIEW_TYPES[data.interviewType] ? `面談種別：${data.interviewType}` : "";
-  return [type, notes].filter(Boolean).join("／");
-}
-
 export function lineShareUrl(text) {
   return `https://line.me/R/share?text=${encodeURIComponent(text)}`;
 }
@@ -106,7 +99,7 @@ export function duplicateKey(data) {
   return `${extractXId(data.xUrl) || extractXId(data.targetId)}|${String(data.targetName ?? "").trim().toLowerCase()}`;
 }
 
-/** 送信用ペイロード。最終送信日・ステータスは含めない */
+/** 送信用ペイロード。ステータス・使用アカウント・番号は含めない（sheetName は登録先の指定にのみ使う） */
 export function buildPayload(data, token) {
   return {
     action: "register",
@@ -120,8 +113,9 @@ export function buildPayload(data, token) {
     meetingTime: data.meetingTime,
     firstContactDate: data.firstContactDate,
     replyDate: data.replyDate,
+    lastSentDate: data.lastSentDate,
     tool: data.tool,
-    notes: notesWithType(data)
+    notes: String(data.notes ?? "").trim()
   };
 }
 
