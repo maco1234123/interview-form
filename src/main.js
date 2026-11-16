@@ -85,7 +85,8 @@ form.addEventListener("submit", async event => {
   const errors = validateInterview(data);
   if (Object.keys(errors).length) {
     const [field, message] = Object.entries(errors)[0];
-    result.textContent = message;
+    const label = el[field]?.closest?.("label")?.firstChild?.textContent?.trim();
+    result.textContent = label ? `${label}：${message}` : message;
     el[field]?.focus?.();
     return;
   }

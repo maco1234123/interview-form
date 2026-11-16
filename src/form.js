@@ -106,27 +106,41 @@ export function buildPayload(data, token) {
   };
 }
 
-async function postJson(endpoint, body, fetchImpl) {
-  let response;
+export const REQUEST_TIMEOUT_MS = 60000;
+
+async function postJson(endpoint, body, fetchImpl, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  let timedOut = false;
+  const timer = controller ? setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs) : null;
   try {
-    // text/plain にして CORS プリフライトを避ける（Apps Script Web アプリ向け）
-    response = await fetchImpl(endpoint, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body), redirect: "follow" });
-  } catch {
-    throw new Error("通信に失敗しました。登録されたか不明なため、共有文は生成しません。シートを確認してください。");
+    let response;
+    try {
+      // text/plain にして CORS プリフライトを避ける（Apps Script Web アプリ向け）
+      response = await fetchImpl(endpoint, {
+        method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body),
+        redirect: "follow", signal: controller?.signal
+      });
+    } catch {
+      throw new Error(timedOut
+        ? "通信がタイムアウトしました。登録されたか不明なため、共有文は生成しません。もう一度送信すると、登録済みの場合は「既に登録されています」と表示されます。"
+        : "通信に失敗しました。登録されたか不明なため、共有文は生成しません。電波を確認してもう一度送信してください（登録済みなら重複として表示されます）。");
+    }
+    let result;
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error("保存結果を確認できませんでした。共有文は生成されません。");
+    }
+    return { response, result };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  let result;
-  try {
-    result = await response.json();
-  } catch {
-    throw new Error("保存結果を確認できませんでした。共有文は生成されません。");
-  }
-  return { response, result };
 }
 
-export async function submitInterview(data, endpoint, token, fetchImpl = fetch) {
+export async function submitInterview(data, endpoint, token, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS) {
   if (!endpoint) throw new Error("保存先が未設定です。接続設定が必要です。");
   if (!token) throw new Error("合言葉が未入力です。");
-  const { response, result } = await postJson(endpoint, buildPayload(data, token), fetchImpl);
+  const { response, result } = await postJson(endpoint, buildPayload(data, token), fetchImpl, timeoutMs);
   if (result?.code === "DUPLICATE") throw new Error(result.message || "同じ対象者が既に登録されています。");
   if (!response.ok || result?.success !== true || !result.recordId) {
     throw new Error(result?.message || "保存結果を確認できませんでした。共有文は生成されません。");
