@@ -70,24 +70,25 @@ export function withHonorific(name) {
 }
 
 export function makeShareText(data) {
-  const lines = [
-    INTERVIEW_TYPES[data.interviewType] ?? "《面談確定》",
-    formatMeeting(data.meetingDate, data.meetingTime),
-    withHonorific(data.targetName),
-    normalizeUrl(data.xUrl),
-    "使用ツール"
-  ];
+  // ブロック内は改行のみ、ブロック間は空行1行
+  const toolBlock = ["使用ツール"];
   if (data.tool === "Discord") {
-    lines.push("discord");
+    toolBlock.push("discord");
     const user = String(data.discordUsername ?? "").trim();
     const invite = String(data.discordInviteUrl ?? "").trim();
-    if (user) lines.push("ユーザー名", user);
-    if (invite) lines.push("招待URL", normalizeUrl(invite));
+    if (user) toolBlock.push("ユーザー名", user);
+    if (invite) toolBlock.push("招待URL", normalizeUrl(invite));
   } else {
-    lines.push("LINE");
+    toolBlock.push("LINE");
   }
-  lines.push("連絡アカ", String(data.sheetName ?? "").trim(), "よろしくお願いします！");
-  return lines.join("\n");
+  const blocks = [
+    [INTERVIEW_TYPES[data.interviewType] ?? "《面談確定》"],
+    [formatMeeting(data.meetingDate, data.meetingTime), withHonorific(data.targetName), normalizeUrl(data.xUrl)],
+    toolBlock,
+    ["連絡アカ", String(data.sheetName ?? "").trim()],
+    ["よろしくお願いします！"]
+  ];
+  return blocks.map(b => b.join("\n")).join("\n\n");
 }
 
 /** シートの備考欄に残す内容。面談種別を先頭に付ける（専用列が無いため） */
