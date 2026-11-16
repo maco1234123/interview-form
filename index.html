@@ -28,8 +28,9 @@
 
     <form id="interview-form" novalidate>
       <section class="card">
-        <h2>担当者・対象者</h2>
+        <h2>面談種別・担当者・対象者</h2>
         <div class="grid">
+          <label class="wide">面談種別 <select name="interviewType" required><option value="">選択してください</option><option>ライバー</option><option>ライバー＆マネージャー</option><option>マネージャー</option></select><small>共有文のタイトルになり、シートの備考欄にも記録されます。</small></label>
           <label>担当者（登録先シート） <select name="sheetName" required><option value="">選択してください</option></select></label>
           <label>担当者名 <input name="managerName" autocomplete="off" required placeholder="例：山田"><small>シートの「担当者名」列に入ります。</small></label>
           <label class="wide">XプロフィールURL <input name="xUrl" type="url" inputmode="url" autocapitalize="off" placeholder="https://x.com/..." required></label>
@@ -54,7 +55,7 @@
           <label class="wide">使用ツール <select name="tool" required><option value="">選択してください</option><option>LINE</option><option>Discord</option></select></label>
           <label class="discord-field hidden">Discordユーザー名 <input name="discordUsername" autocomplete="off" autocapitalize="off"><small>共有文のみに使用</small></label>
           <label class="discord-field hidden">Discord招待URL <input name="discordInviteUrl" type="url" inputmode="url" autocapitalize="off" placeholder="https://discord.gg/..."><small>共有文のみに使用</small></label>
-          <label class="wide">備考 <textarea name="notes" rows="3" placeholder="任意"></textarea></label>
+          <label class="wide">備考 <textarea name="notes" rows="3" maxlength="450" placeholder="任意"></textarea><small>シートの備考欄に入ります（共有文には含みません）。</small></label>
         </div>
       </section>
 
@@ -66,7 +67,7 @@
 
     <section class="card hidden" id="share-card">
       <h2>LINE共有文</h2>
-      <textarea id="share-text" rows="11" readonly></textarea>
+      <textarea id="share-text" rows="14" readonly></textarea>
       <div class="actions share-actions">
         <button id="copy-button" type="button">コピー</button>
         <button id="share-button" type="button">共有</button>

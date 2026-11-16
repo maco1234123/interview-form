@@ -1,5 +1,11 @@
+export const INTERVIEW_TYPES = {
+  "ライバー": "《ライバー面談確定》",
+  "ライバー＆マネージャー": "《ライバー&マネージャー面談確定》",
+  "マネージャー": "《マネージャー面談確定》"
+};
+
 export const requiredFields = [
-  "sheetName", "managerName", "xUrl", "targetName", "meetingDate", "meetingTime",
+  "interviewType", "sheetName", "managerName", "xUrl", "targetName", "meetingDate", "meetingTime",
   "firstContactDate", "replyDate", "tool"
 ];
 
@@ -28,6 +34,7 @@ export function validateInterview(data, now = new Date()) {
   for (const field of requiredFields) {
     if (!String(data[field] ?? "").trim()) errors[field] = "必須項目を入力してください";
   }
+  if (data.interviewType && !INTERVIEW_TYPES[data.interviewType]) errors.interviewType = "面談種別を選択してください";
   if (data.tool && !["LINE", "Discord"].includes(data.tool)) errors.tool = "LINEかDiscordを選択してください";
   if (data.meetingDate && data.meetingTime && new Date(`${data.meetingDate}T${data.meetingTime}:00`) < now) {
     errors.meetingDate = "面談日時は現在以降を指定してください";
@@ -50,33 +57,44 @@ export function validateInterview(data, now = new Date()) {
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
+/** 共有文用の日時（例：11/15(日)14:00〜）。入力された暦日から曜日を求めるので端末のタイムゾーンに左右されない */
 export function formatMeeting(date, time) {
   const [y, m, d] = String(date).split("-").map(Number);
-  const w = WEEKDAYS[new Date(y, m - 1, d).getDay()];
-  return `${y}/${String(m).padStart(2, "0")}/${String(d).padStart(2, "0")}(${w}) ${time}`;
+  const w = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${m}/${d}(${w})${time}〜`;
 }
 
-const slash = value => String(value ?? "").replaceAll("-", "/");
+export function withHonorific(name) {
+  const s = String(name ?? "").trim();
+  return s.endsWith("様") ? s : `${s}様`;
+}
 
 export function makeShareText(data) {
-  const id = extractXId(data.xUrl) || extractXId(data.targetId);
   const lines = [
-    "【面談確定】",
-    `担当者：${data.managerName}`,
-    `使用アカウント：${data.sheetName}`,
-    `対象者：${data.targetName}${id ? `（@${id}）` : ""}`,
-    `X：${normalizeUrl(data.xUrl)}`,
-    `面談日時：${formatMeeting(data.meetingDate, data.meetingTime)}`,
-    `初回送信日：${slash(data.firstContactDate)}`,
-    `返信日：${slash(data.replyDate)}`,
-    `使用ツール：${data.tool}`
+    INTERVIEW_TYPES[data.interviewType] ?? "《面談確定》",
+    formatMeeting(data.meetingDate, data.meetingTime),
+    withHonorific(data.targetName),
+    normalizeUrl(data.xUrl),
+    "使用ツール"
   ];
   if (data.tool === "Discord") {
-    if (String(data.discordUsername ?? "").trim()) lines.push(`Discordユーザー名：${data.discordUsername.trim()}`);
-    if (String(data.discordInviteUrl ?? "").trim()) lines.push(`招待URL：${normalizeUrl(data.discordInviteUrl)}`);
+    lines.push("discord");
+    const user = String(data.discordUsername ?? "").trim();
+    const invite = String(data.discordInviteUrl ?? "").trim();
+    if (user) lines.push("ユーザー名", user);
+    if (invite) lines.push("招待URL", normalizeUrl(invite));
+  } else {
+    lines.push("LINE");
   }
-  if (String(data.notes ?? "").trim()) lines.push(`備考：${data.notes.trim()}`);
+  lines.push("連絡アカ", String(data.sheetName ?? "").trim(), "よろしくお願いします！");
   return lines.join("\n");
+}
+
+/** シートの備考欄に残す内容。面談種別を先頭に付ける（専用列が無いため） */
+export function notesWithType(data) {
+  const notes = String(data.notes ?? "").trim();
+  const type = INTERVIEW_TYPES[data.interviewType] ? `面談種別：${data.interviewType}` : "";
+  return [type, notes].filter(Boolean).join("／");
 }
 
 export function lineShareUrl(text) {
@@ -102,7 +120,7 @@ export function buildPayload(data, token) {
     firstContactDate: data.firstContactDate,
     replyDate: data.replyDate,
     tool: data.tool,
-    notes: String(data.notes ?? "").trim()
+    notes: notesWithType(data)
   };
 }
 
