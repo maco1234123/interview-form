@@ -1,0 +1,7 @@
+# 公開リポジトリにはフォーム画面（静的ファイル）だけを置く
+README.md
+gas/
+test/
+package.json
+.claude/
+node_modules/
