@@ -121,7 +121,44 @@ export function buildPayload(data, token) {
 
 export const REQUEST_TIMEOUT_MS = 60000;
 
-async function postJson(endpoint, body, fetchImpl, timeoutMs = REQUEST_TIMEOUT_MS) {
+/** 登録の1回目の待ち時間と、再確認（同じ送信IDでの再送）の待ち時間・間隔 */
+export const REGISTER_TIMEOUTS_MS = [30000, 20000, 20000, 20000];
+export const RECHECK_DELAYS_MS = [1000, 3000, 5000];
+
+/** サーバーが「登録していない」と確定して返すコード（この場合だけ「登録失敗」と表示する） */
+export const DEFINITE_FAILURE_CODES = [
+  "INVALID", "UNAUTHORIZED", "DUPLICATE", "INVALID_SHEET", "CONFLICT", "NO_EMPTY_ROW", "BAD_REQUEST", "REQUEST_ID_MISMATCH", "DRY_RUN"
+];
+
+/** kind: "failed"（登録されていないと確定）／"unknown"（登録されたか確認できない。失敗とは限らない） */
+export class RegistrationError extends Error {
+  constructor(message, kind, code = "") {
+    super(message);
+    this.kind = kind;
+    this.code = code;
+  }
+}
+
+/** 送信ごとの一意なID（同じ登録操作の再送では同じIDを使い、二重登録を防ぐ） */
+export function newRequestId(cryptoImpl = globalThis.crypto) {
+  if (cryptoImpl?.randomUUID) return `req-${cryptoImpl.randomUUID().replace(/-/g, "")}`;
+  const bytes = new Uint8Array(16);
+  cryptoImpl.getRandomValues(bytes);
+  return `req-${Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** 入力内容の指紋（同じ内容の再送かどうかの判定用） */
+export function dataFingerprint(data) {
+  const keys = ["sheetName", "managerName", "xUrl", "targetName", "targetId", "meetingDate", "meetingTime",
+    "firstContactDate", "replyDate", "lastSentDate", "tool", "notes"];
+  return JSON.stringify(keys.map(k => String(data[k] ?? "").trim()));
+}
+
+/**
+ * 1回分の通信。応答が読めた場合は { response, result }、
+ * 通信断・タイムアウト・読めない応答の場合は { lost: "timeout" | "network" | "unreadable" } を返す（例外にしない）。
+ */
+async function postOnce(endpoint, body, fetchImpl, timeoutMs) {
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   let timedOut = false;
   const timer = controller ? setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs) : null;
@@ -134,31 +171,84 @@ async function postJson(endpoint, body, fetchImpl, timeoutMs = REQUEST_TIMEOUT_M
         redirect: "follow", signal: controller?.signal
       });
     } catch {
-      throw new Error(timedOut
-        ? "通信がタイムアウトしました。登録されたか不明なため、共有文は生成しません。もう一度送信すると、登録済みの場合は「既に登録されています」と表示されます。"
-        : "通信に失敗しました。登録されたか不明なため、共有文は生成しません。電波を確認してもう一度送信してください（登録済みなら重複として表示されます）。");
+      return { lost: timedOut ? "timeout" : "network" };
     }
-    let result;
     try {
-      result = await response.json();
+      return { response, result: await response.json() };
     } catch {
-      throw new Error("保存結果を確認できませんでした。共有文は生成されません。");
+      return { lost: timedOut ? "timeout" : "unreadable" };
     }
-    return { response, result };
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
 
-export async function submitInterview(data, endpoint, token, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS) {
-  if (!endpoint) throw new Error("保存先が未設定です。接続設定が必要です。");
-  if (!token) throw new Error("合言葉が未入力です。");
-  const { response, result } = await postJson(endpoint, buildPayload(data, token), fetchImpl, timeoutMs);
-  if (result?.code === "DUPLICATE") throw new Error(result.message || "同じ対象者が既に登録されています。");
-  if (!response.ok || result?.success !== true || !result.recordId) {
-    throw new Error(result?.message || "保存結果を確認できませんでした。共有文は生成されません。");
+async function postJson(endpoint, body, fetchImpl, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const r = await postOnce(endpoint, body, fetchImpl, timeoutMs);
+  if (r.lost === "timeout") throw new Error("通信がタイムアウトしました。電波の良い場所でもう一度お試しください。");
+  if (r.lost === "network") throw new Error("通信に失敗しました。電波を確認してもう一度お試しください。");
+  if (r.lost) throw new Error("応答を確認できませんでした。もう一度お試しください。");
+  return r;
+}
+
+const LOST_TEXT = {
+  timeout: "応答がありませんでした（タイムアウト）",
+  network: "通信が切れました",
+  unreadable: "応答を読み取れませんでした",
+  busy: "サーバーが他の登録を処理中でした",
+  server: "サーバーで一時的なエラーが起きました"
+};
+
+const defaultSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * 登録する。通信が切れた・応答が無い場合は「失敗」と決めつけず、同じ送信IDで再確認する
+ * （サーバーは同じ送信IDの登録を二重に書かず、登録済みならその結果を返す）。
+ * - 成功を確認できた場合だけ結果を返す（共有文はこの場合だけ出す）
+ * - 登録されていないと確定した場合は RegistrationError(kind: "failed")
+ * - 最後まで確認できなかった場合は RegistrationError(kind: "unknown")
+ *
+ * options: requestId（必須推奨）, recheck（最初から再確認として送る）, onState(state, attempt),
+ *          timeouts, delays, sleep
+ */
+export async function submitInterview(data, endpoint, token, fetchImpl = fetch, options = {}) {
+  if (!endpoint) throw new RegistrationError("保存先が未設定です。接続設定が必要です。", "failed", "CONFIG");
+  if (!token) throw new RegistrationError("合言葉が未入力です。", "failed", "CONFIG");
+  const {
+    requestId = newRequestId(), recheck = false, onState = () => {},
+    timeouts = REGISTER_TIMEOUTS_MS, delays = RECHECK_DELAYS_MS, sleep = defaultSleep
+  } = options;
+  const started = Date.now();
+  let lastReason = "network";
+  for (let attempt = 0; attempt < timeouts.length; attempt++) {
+    const checking = recheck || attempt > 0;
+    if (attempt > 0) {
+      onState("checking", attempt);
+      await sleep(delays[Math.min(attempt - 1, delays.length - 1)] ?? 0);
+    } else {
+      onState(checking ? "checking" : "sending", attempt);
+    }
+    const body = { ...buildPayload(data, token), requestId, ...(checking ? { retry: true } : {}) };
+    const r = await postOnce(endpoint, body, fetchImpl, timeouts[attempt]);
+    if (r.lost) { lastReason = r.lost; continue; }
+    const { response, result } = r;
+    if (response.ok && result?.success === true && result.recordId) {
+      return { ...result, requestId, attempts: attempt + 1, clientMs: Date.now() - started };
+    }
+    const code = result?.code ?? "";
+    if (code === "BUSY") { lastReason = "busy"; continue; }
+    if (code === "VERIFY_FAILED") {
+      throw new RegistrationError(`${result.message || "書き込み後の確認に失敗しました。"}（${result.recordId || "登録先"}を確認してください）`, "unknown", code);
+    }
+    if (DEFINITE_FAILURE_CODES.includes(code)) {
+      throw new RegistrationError(result.message || "登録できませんでした。", "failed", code);
+    }
+    lastReason = "server"; // ERROR・不明な応答は登録されたか分からないので再確認する
   }
-  return result;
+  throw new RegistrationError(
+    `${LOST_TEXT[lastReason] || LOST_TEXT.network}。登録されたかどうか確認できていません（失敗とは限りません）。電波の良い場所で「登録状況を確認」を押してください。同じ登録が二重になることはありません。`,
+    "unknown", lastReason
+  );
 }
 
 export async function fetchSheets(endpoint, token, fetchImpl = fetch) {

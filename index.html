@@ -63,7 +63,11 @@
       <div class="actions">
         <button id="submit-button" class="primary" type="submit" disabled>シートに登録</button>
       </div>
-      <p id="result" class="result" aria-live="polite"></p>
+      <div id="status" class="status hidden" role="status" aria-live="polite">
+        <span class="status-icon" aria-hidden="true"></span>
+        <div class="status-body"><strong id="status-title"></strong><p id="result" class="result"></p></div>
+      </div>
+      <button id="recheck-button" type="button" class="recheck hidden">登録状況を確認</button>
     </form>
 
     <section class="card hidden" id="share-card">
